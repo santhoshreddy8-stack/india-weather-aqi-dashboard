@@ -7,7 +7,7 @@ An end-to-end, auto-refreshing ETL pipeline and interactive analytics dashboard 
 ![Plotly](https://img.shields.io/badge/Plotly-5.24%2B-3F4F75?logo=plotly&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?logo=sqlite&logoColor=white)
 
-🔗 **Live App:** `[Add your Streamlit Community Cloud URL here]`  
+🔗 **Live App:** `[https://india-weather-aqi-dashboard.streamlit.app/]`  
 🎥 **Demo Video:** `[Add your YouTube / LinkedIn demo link here]`
 
 ---
