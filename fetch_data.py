@@ -122,6 +122,47 @@ def collect_if_stale(force=False):
         _lock.release()
 
 
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+
+
+def search_india_locations(query, count=8):
+    """Search any state, city, town, or village in India via Open-Meteo Geocoding."""
+    if not query or len(query.strip()) < 2:
+        return []
+    try:
+        data = _get(
+            GEOCODE_URL,
+            {
+                "name": query.strip(),
+                "count": count,
+                "language": "en",
+                "format": "json",
+                "countryCode": "IN",
+            },
+        )
+        results = []
+        for item in data.get("results", []):
+            parts = [item.get("name", "")]
+            if item.get("admin2") and item.get("admin2") != item.get("name"):
+                parts.append(item["admin2"])
+            if item.get("admin1"):
+                parts.append(item["admin1"])
+            results.append(
+                {
+                    "label": ", ".join(parts),
+                    "name": item.get("name", ""),
+                    "state": item.get("admin1", "India"),
+                    "lat": item["latitude"],
+                    "lon": item["longitude"],
+                }
+            )
+        return results
+    except requests.RequestException as exc:
+        log.warning("Geocoding search failed: %s", exc)
+        return []
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Collect live weather and air quality data.")
     parser.add_argument("--once", action="store_true", help="run a single collection and exit")
