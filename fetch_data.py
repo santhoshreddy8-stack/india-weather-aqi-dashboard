@@ -5,6 +5,7 @@ Run standalone:   python fetch_data.py          (loops forever)
 The Streamlit app also calls collect_if_stale() automatically.
 """
 import argparse
+import difflib
 import logging
 import threading
 import time
@@ -125,38 +126,74 @@ def collect_if_stale(force=False):
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 
 
+POPULAR_INDIA_PLACES = [
+    "Delhi", "Mumbai", "Bengaluru", "Chennai", "Kolkata", "Hyderabad",
+    "Visakhapatnam", "Ahmedabad", "Pune", "Jaipur", "Lucknow", "Kochi",
+    "Kurnool", "Yemmiganur", "Vijayawada", "Tirupati", "Varanasi", "Shimla",
+    "Andhra Pradesh", "Telangana", "Karnataka", "Tamil Nadu", "Maharashtra",
+    "Gujarat", "Rajasthan", "Kerala", "Uttar Pradesh", "West Bengal",
+]
+
+
+def _query_open_meteo_geo(term, count=8):
+    data = _get(
+        GEOCODE_URL,
+        {
+            "name": term,
+            "count": count,
+            "language": "en",
+            "format": "json",
+            "countryCode": "IN",
+        },
+    )
+    results = []
+    for item in data.get("results", []):
+        parts = [item.get("name", "")]
+        if item.get("admin2") and item.get("admin2") != item.get("name"):
+            parts.append(item["admin2"])
+        if item.get("admin1"):
+            parts.append(item["admin1"])
+        results.append(
+            {
+                "label": ", ".join(parts),
+                "name": item.get("name", ""),
+                "state": item.get("admin1", "India"),
+                "lat": item["latitude"],
+                "lon": item["longitude"],
+            }
+        )
+    return results
+
+
 def search_india_locations(query, count=8):
-    """Search any state, city, town, or village in India via Open-Meteo Geocoding."""
-    if not query or len(query.strip()) < 2:
+    """Search any state, city, town, or village in India with spelling autocorrect."""
+    q = (query or "").strip()
+    if len(q) < 2:
         return []
     try:
-        data = _get(
-            GEOCODE_URL,
-            {
-                "name": query.strip(),
-                "count": count,
-                "language": "en",
-                "format": "json",
-                "countryCode": "IN",
-            },
-        )
-        results = []
-        for item in data.get("results", []):
-            parts = [item.get("name", "")]
-            if item.get("admin2") and item.get("admin2") != item.get("name"):
-                parts.append(item["admin2"])
-            if item.get("admin1"):
-                parts.append(item["admin1"])
-            results.append(
-                {
-                    "label": ", ".join(parts),
-                    "name": item.get("name", ""),
-                    "state": item.get("admin1", "India"),
-                    "lat": item["latitude"],
-                    "lon": item["longitude"],
-                }
-            )
-        return results
+        # 1. Direct live search
+        results = _query_open_meteo_geo(q, count=count)
+        if results:
+            return results
+
+        # 2. Fuzzy spelling autocorrect against common Indian states & cities
+        close = difflib.get_close_matches(q, POPULAR_INDIA_PLACES, n=2, cutoff=0.6)
+        for corrected in close:
+            results = _query_open_meteo_geo(corrected, count=count)
+            if results:
+                for r in results:
+                    r["label"] = f"{r['label']} (auto-corrected from '{q}')"
+                return results
+
+        # 3. Prefix fallback for misspelled villages/towns (trims trailing typo chars)
+        for trim in (1, 2):
+            if len(q) - trim >= 3:
+                results = _query_open_meteo_geo(q[:-trim], count=count)
+                if results:
+                    for r in results:
+                        r["label"] = f"{r['label']} (closest match)"
+                    return results
+        return []
     except requests.RequestException as exc:
         log.warning("Geocoding search failed: %s", exc)
         return []

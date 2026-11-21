@@ -9,6 +9,7 @@ import fetch_data
 from config import CITIES, COLLECT_EVERY_SECONDS, UI_REFRESH_SECONDS
 import folium
 from streamlit_folium import st_folium
+from streamlit_searchbox import st_searchbox
 
 st.set_page_config(
     page_title="India Live Weather & Air Quality",
@@ -130,84 +131,91 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---- Universal India Search Bar ----
-search_col1, search_col2 = st.columns([3, 2])
-with search_col1:
-    search_query = st.text_input(
-        "🔍 Search any State, City, Town, or Village in India",
-        placeholder="e.g., Yemmiganur, Kurnool, Jaipur, Shimla, Kochi, Varanasi...",
-    )
+# ---- Universal India Search Bar (Live Autocomplete + Click Suggestions + Autocorrect) ----
+DEFAULT_SUGGESTIONS = [
+    ("Delhi, Delhi", {"label": "Delhi, Delhi", "name": "Delhi", "lat": 28.6139, "lon": 77.2090}),
+    ("Mumbai, Maharashtra", {"label": "Mumbai, Maharashtra", "name": "Mumbai", "lat": 19.0760, "lon": 72.8777}),
+    ("Bengaluru, Karnataka", {"label": "Bengaluru, Karnataka", "name": "Bengaluru", "lat": 12.9716, "lon": 77.5946}),
+    ("Hyderabad, Telangana", {"label": "Hyderabad, Telangana", "name": "Hyderabad", "lat": 17.3850, "lon": 78.4867}),
+    ("Chennai, Tamil Nadu", {"label": "Chennai, Tamil Nadu", "name": "Chennai", "lat": 13.0827, "lon": 80.2707}),
+    ("Yemmiganur, Kurnool, Andhra Pradesh", {"label": "Yemmiganur, Kurnool, Andhra Pradesh", "name": "Yemmiganur", "lat": 15.7720, "lon": 77.4800}),
+    ("Visakhapatnam, Andhra Pradesh", {"label": "Visakhapatnam, Andhra Pradesh", "name": "Visakhapatnam", "lat": 17.6868, "lon": 83.2185}),
+    ("Jaipur, Rajasthan", {"label": "Jaipur, Rajasthan", "name": "Jaipur", "lat": 26.9124, "lon": 75.7873}),
+]
 
-if search_query:
-    matches = fetch_data.search_india_locations(search_query)
-    if not matches:
-        st.warning(f"No locations found in India for '{search_query}'. Try checking the spelling.")
-    else:
-        with search_col2:
-            chosen_label = st.selectbox(
-                "Select exact location",
-                [m["label"] for m in matches],
-                key="india_loc_select",
+
+def _search_suggestions(searchterm: str):
+    if not searchterm or len(searchterm.strip()) < 2:
+        return DEFAULT_SUGGESTIONS
+    matches = fetch_data.search_india_locations(searchterm)
+    return [(m["label"], m) for m in matches]
+
+
+chosen = st_searchbox(
+    _search_suggestions,
+    placeholder="🔍 Type any Indian State, City, Town, or Village (e.g., Yemmiganur, Jaipur, Shimla)...",
+    default_options=DEFAULT_SUGGESTIONS,
+    debounce=200,
+    key="india_live_searchbox",
+)
+
+if chosen and isinstance(chosen, dict):
+    with st.spinner(f"Fetching live weather & AQI for {chosen['label']}..."):
+        try:
+            live = fetch_data.fetch_current(chosen["label"], chosen["lat"], chosen["lon"])
+            hist_rows = fetch_data.fetch_history(chosen["label"], chosen["lat"], chosen["lon"], days=2)
+            hist_df = pd.DataFrame(hist_rows)
+            hist_df["observed_at"] = pd.to_datetime(hist_df["observed_at"])
+
+            aqi_val = live.get("us_aqi")
+            aqi_cat = analysis.aqi_category(aqi_val)
+            aqi_color = analysis.AQI_COLORS.get(aqi_cat, "#38bdf8")
+
+            st.markdown(
+                f"""
+                <div class="search-card">
+                    <h3 style="margin:0; color:#fff;">📍 {chosen['label']}</h3>
+                    <p style="margin:4px 0 0 0; color:#cbd5e1; font-size:0.9rem;">
+                        Lat: {chosen['lat']:.4f}, Lon: {chosen['lon']:.4f} &nbsp;|&nbsp;
+                        Air Quality: <span style="background:{aqi_color}; color:#fff; padding:2px 10px; border-radius:12px; font-weight:700;">{aqi_cat}</span>
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-        chosen = next(m for m in matches if m["label"] == chosen_label)
 
-        with st.spinner(f"Fetching live weather & AQI for {chosen['label']}..."):
-            try:
-                live = fetch_data.fetch_current(chosen["label"], chosen["lat"], chosen["lon"])
-                hist_rows = fetch_data.fetch_history(chosen["label"], chosen["lat"], chosen["lon"], days=2)
-                hist_df = pd.DataFrame(hist_rows)
-                hist_df["observed_at"] = pd.to_datetime(hist_df["observed_at"])
+            s1, s2, s3, s4, s5 = st.columns(5)
+            s1.metric("Temperature", f"{live.get('temperature', 0):.1f} °C")
+            s2.metric("Feels Like", f"{live.get('apparent_temp', 0):.1f} °C")
+            s3.metric("Humidity", f"{live.get('humidity', 0):.0f} %")
+            s4.metric("Wind Speed", f"{live.get('wind_speed', 0):.1f} km/h")
+            s5.metric("US AQI", "n/a" if aqi_val is None else f"{aqi_val:.0f}")
 
-                aqi_val = live.get("us_aqi")
-                aqi_cat = analysis.aqi_category(aqi_val)
-                aqi_color = analysis.AQI_COLORS.get(aqi_cat, "#38bdf8")
-
-                st.markdown(
-                    f"""
-                    <div class="search-card">
-                        <h3 style="margin:0; color:#fff;">📍 {chosen['label']}</h3>
-                        <p style="margin:4px 0 0 0; color:#cbd5e1; font-size:0.9rem;">
-                            Lat: {chosen['lat']:.4f}, Lon: {chosen['lon']:.4f} &nbsp;|&nbsp;
-                            Air Quality: <span style="background:{aqi_color}; color:#fff; padding:2px 10px; border-radius:12px; font-weight:700;">{aqi_cat}</span>
-                        </p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                s1, s2, s3, s4, s5 = st.columns(5)
-                s1.metric("Temperature", f"{live.get('temperature', 0):.1f} °C")
-                s2.metric("Feels Like", f"{live.get('apparent_temp', 0):.1f} °C")
-                s3.metric("Humidity", f"{live.get('humidity', 0):.0f} %")
-                s4.metric("Wind Speed", f"{live.get('wind_speed', 0):.1f} km/h")
-                s5.metric("US AQI", "n/a" if aqi_val is None else f"{aqi_val:.0f}")
-
-                if not hist_df.empty:
-                    c_left, c_right = st.columns(2)
-                    with c_left:
-                        fig_t = px.area(
-                            hist_df, x="observed_at", y="temperature",
-                            title=f"48h Temperature Trend — {chosen['name']}",
-                            labels={"observed_at": "Time (IST)", "temperature": "°C"},
-                            template="plotly_dark", height=280,
-                        )
-                        fig_t.update_traces(line_color="#38bdf8", fillcolor="rgba(56, 189, 248, 0.25)")
-                        fig_t.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin={"l": 0, "r": 0, "t": 35, "b": 0})
-                        st.plotly_chart(fig_t, use_container_width=True)
-                    with c_right:
-                        fig_a = px.area(
-                            hist_df, x="observed_at", y="us_aqi",
-                            title=f"48h US AQI Trend — {chosen['name']}",
-                            labels={"observed_at": "Time (IST)", "us_aqi": "US AQI"},
-                            template="plotly_dark", height=280,
-                        )
-                        fig_a.update_traces(line_color="#e879f9", fillcolor="rgba(232, 121, 249, 0.25)")
-                        fig_a.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin={"l": 0, "r": 0, "t": 35, "b": 0})
-                        st.plotly_chart(fig_a, use_container_width=True)
-                st.divider()
-            except Exception as exc:
-                st.error(f"Could not fetch live data for {chosen['label']}: {exc}")
-
+            if not hist_df.empty:
+                c_left, c_right = st.columns(2)
+                with c_left:
+                    fig_t = px.area(
+                        hist_df, x="observed_at", y="temperature",
+                        title=f"48h Temperature Trend — {chosen['name']}",
+                        labels={"observed_at": "Time (IST)", "temperature": "°C"},
+                        template="plotly_dark", height=280,
+                    )
+                    fig_t.update_traces(line_color="#38bdf8", fillcolor="rgba(56, 189, 248, 0.25)")
+                    fig_t.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin={"l": 0, "r": 0, "t": 35, "b": 0})
+                    st.plotly_chart(fig_t, use_container_width=True, key="search_temp_chart")
+                with c_right:
+                    fig_a = px.area(
+                        hist_df, x="observed_at", y="us_aqi",
+                        title=f"48h US AQI Trend — {chosen['name']}",
+                        labels={"observed_at": "Time (IST)", "us_aqi": "US AQI"},
+                        template="plotly_dark", height=280,
+                    )
+                    fig_a.update_traces(line_color="#e879f9", fillcolor="rgba(232, 121, 249, 0.25)")
+                    fig_a.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin={"l": 0, "r": 0, "t": 35, "b": 0})
+                    st.plotly_chart(fig_a, use_container_width=True, key="search_aqi_chart")
+            st.divider()
+        except Exception as exc:
+            st.error(f"Could not fetch live data for {chosen['label']}: {exc}")
 # ---- Interactive Click-to-Check Weather Map ----
 with st.expander("🗺️ Interactive Map — Click Anywhere in India to Check Live Weather & AQI", expanded=False):
     st.caption("Pan, zoom, and click any state, city, or village on the map to fetch live conditions.")
