@@ -222,7 +222,7 @@ with st.expander("🗺️ Interactive Map — Click Anywhere in India to Check L
     click_map = folium.Map(
         location=[22.5, 80.0],
         zoom_start=5,
-        tiles="CartoDB dark_matter",
+        tiles="OpenStreetMap",
         attribution_control=False,
     )
     click_map.add_child(folium.LatLngPopup())
