@@ -7,6 +7,8 @@ import analysis
 import db
 import fetch_data
 from config import CITIES, COLLECT_EVERY_SECONDS, UI_REFRESH_SECONDS
+import folium
+from streamlit_folium import st_folium
 
 st.set_page_config(
     page_title="India Live Weather & Air Quality",
@@ -205,6 +207,93 @@ if search_query:
                 st.divider()
             except Exception as exc:
                 st.error(f"Could not fetch live data for {chosen['label']}: {exc}")
+
+# ---- Interactive Click-to-Check Weather Map ----
+with st.expander("🗺️ Interactive Map — Click Anywhere in India to Check Live Weather & AQI", expanded=False):
+    st.caption("Pan, zoom, and click any state, city, or village on the map to fetch live conditions.")
+    click_map = folium.Map(location=[22.5, 80.0], zoom_start=5, tiles="CartoDB dark_matter")
+    click_map.add_child(folium.LatLngPopup())
+
+    for city_name, (clat, clon) in CITIES.items():
+        folium.CircleMarker(
+            location=[clat, clon],
+            radius=5,
+            color="#38bdf8",
+            fill=True,
+            fill_color="#818cf8",
+            fill_opacity=0.85,
+            tooltip=city_name,
+        ).add_to(click_map)
+
+    map_click = st_folium(
+        click_map,
+        height=430,
+        use_container_width=True,
+        returned_objects=["last_clicked"],
+        key="interactive_weather_map",
+    )
+
+    if map_click and map_click.get("last_clicked"):
+        lat = map_click["last_clicked"]["lat"]
+        lon = map_click["last_clicked"]["lng"]
+        place_name = fetch_data.reverse_geocode(lat, lon)
+
+        with st.spinner(f"Fetching live weather & AQI for {place_name}..."):
+            try:
+                live_pt = fetch_data.fetch_current(place_name, lat, lon)
+                hist_pt = pd.DataFrame(fetch_data.fetch_history(place_name, lat, lon, days=2))
+                hist_pt["observed_at"] = pd.to_datetime(hist_pt["observed_at"])
+
+                aqi_val = live_pt.get("us_aqi")
+                aqi_cat = analysis.aqi_category(aqi_val)
+                aqi_color = analysis.AQI_COLORS.get(aqi_cat, "#38bdf8")
+
+                st.markdown(
+                    f"""
+                    <div class="search-card">
+                        <h3 style="margin:0; color:#fff;">📍 {place_name}</h3>
+                        <p style="margin:4px 0 0 0; color:#cbd5e1; font-size:0.9rem;">
+                            Lat: {lat:.4f}, Lon: {lon:.4f} &nbsp;|&nbsp;
+                            Air Quality: <span style="background:{aqi_color}; color:#fff; padding:2px 10px; border-radius:12px; font-weight:700;">{aqi_cat}</span>
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Temperature", f"{live_pt.get('temperature', 0):.1f} °C")
+                m2.metric("Feels Like", f"{live_pt.get('apparent_temp', 0):.1f} °C")
+                m3.metric("Humidity", f"{live_pt.get('humidity', 0):.0f} %")
+                m4.metric("Wind Speed", f"{live_pt.get('wind_speed', 0):.1f} km/h")
+                m5.metric("US AQI", "n/a" if aqi_val is None else f"{aqi_val:.0f}")
+
+                if not hist_pt.empty:
+                    mc1, mc2 = st.columns(2)
+                    with mc1:
+                        ft = px.area(
+                            hist_pt, x="observed_at", y="temperature",
+                            title=f"48h Temperature — {place_name}",
+                            labels={"observed_at": "Time (IST)", "temperature": "°C"},
+                            template="plotly_dark", height=260,
+                        )
+                        ft.update_traces(line_color="#38bdf8", fillcolor="rgba(56, 189, 248, 0.25)")
+                        ft.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin={"l": 0, "r": 0, "t": 35, "b": 0})
+                        st.plotly_chart(ft, use_container_width=True, key="map_click_temp")
+                    with mc2:
+                        fa = px.area(
+                            hist_pt, x="observed_at", y="us_aqi",
+                            title=f"48h US AQI — {place_name}",
+                            labels={"observed_at": "Time (IST)", "us_aqi": "US AQI"},
+                            template="plotly_dark", height=260,
+                        )
+                        fa.update_traces(line_color="#e879f9", fillcolor="rgba(232, 121, 249, 0.25)")
+                        fa.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin={"l": 0, "r": 0, "t": 35, "b": 0})
+                        st.plotly_chart(fa, use_container_width=True, key="map_click_aqi")
+            except Exception as exc:
+                st.error(f"Could not fetch live data for this location: {exc}")
+
+
 
 # ---- Sidebar Controls ----
 with st.sidebar:

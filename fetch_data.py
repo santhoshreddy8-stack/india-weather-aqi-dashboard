@@ -161,6 +161,33 @@ def search_india_locations(query, count=8):
         log.warning("Geocoding search failed: %s", exc)
         return []
 
+REVERSE_GEOCODE_URL = "https://nominatim.openstreetmap.org/reverse"
+
+
+def reverse_geocode(lat, lon):
+    """Convert clicked map coordinates into a readable place name."""
+    try:
+        resp = _session.get(
+            REVERSE_GEOCODE_URL,
+            params={"lat": lat, "lon": lon, "format": "json", "zoom": 10},
+            headers={"User-Agent": "india-weather-aqi-dashboard/1.0"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        addr = resp.json().get("address", {})
+        place = (
+            addr.get("village")
+            or addr.get("town")
+            or addr.get("city")
+            or addr.get("county")
+            or addr.get("state_district")
+        )
+        state = addr.get("state")
+        parts = [p for p in (place, state) if p]
+        return ", ".join(parts) if parts else f"{lat:.4f}, {lon:.4f}"
+    except Exception:
+        return f"{lat:.4f}, {lon:.4f}"
+
 
 
 def main():
