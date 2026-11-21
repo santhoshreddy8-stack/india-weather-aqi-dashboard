@@ -211,7 +211,12 @@ if search_query:
 # ---- Interactive Click-to-Check Weather Map ----
 with st.expander("🗺️ Interactive Map — Click Anywhere in India to Check Live Weather & AQI", expanded=False):
     st.caption("Pan, zoom, and click any state, city, or village on the map to fetch live conditions.")
-    click_map = folium.Map(location=[22.5, 80.0], zoom_start=5, tiles="CartoDB dark_matter")
+    click_map = folium.Map(
+        location=[22.5, 80.0],
+        zoom_start=5,
+        tiles="CartoDB dark_matter",
+        attribution_control=False,
+    )
     click_map.add_child(folium.LatLngPopup())
 
     for city_name, (clat, clon) in CITIES.items():
